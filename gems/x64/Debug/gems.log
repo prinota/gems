@@ -1,0 +1,7 @@
+﻿  GameBoard.cpp
+C:\Users\admin\source\repos\gems\gems\GameBoard.cpp(314,89): warning C4267: аргумент: преобразование из "size_t" в "_Ty"; возможна потеря данных
+C:\Users\admin\source\repos\gems\gems\GameBoard.cpp(314,89): warning C4267:         with
+C:\Users\admin\source\repos\gems\gems\GameBoard.cpp(314,89): warning C4267:         [
+C:\Users\admin\source\repos\gems\gems\GameBoard.cpp(314,89): warning C4267:             _Ty=int
+C:\Users\admin\source\repos\gems\gems\GameBoard.cpp(314,89): warning C4267:         ]
+  gems.vcxproj -> C:\Users\admin\source\repos\gems\x64\Debug\gems.exe
