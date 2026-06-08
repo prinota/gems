@@ -1,9 +1,12 @@
 ﻿#include "Gem.hpp"
+#include "GameBoard.hpp"
 #include <cmath>
+#include <cstdlib>
 
 Gem::Gem(GemColor color, int row, int col, float size)
     : color(color), row(row), col(col), selected(false), size(size),
-    animating(false), state(GemState::Idle), currentScale(1.0f), currentAlpha(255.0f) {
+    animating(false), state(GemState::Idle), currentScale(1.0f), currentAlpha(255.0f),
+    hasSymbol(false) {
     shape.setRadius(size / 2 - 2);
     shape.setPointCount(4);
     shape.setFillColor(getSFMLColor(color));
@@ -24,6 +27,23 @@ sf::Color Gem::getSFMLColor(GemColor color) const {
     }
 }
 
+void Gem::initSymbol(const sf::Color& symbolColor) {
+    hasSymbol = true;
+    symbolShape.setRadius(size * 0.15f);
+    symbolShape.setOrigin(size * 0.15f, size * 0.15f);
+    symbolShape.setFillColor(symbolColor);
+    symbolShape.setOutlineColor(sf::Color::Black);
+    symbolShape.setOutlineThickness(1);
+}
+
+void Gem::drawSymbol(sf::RenderWindow& window) const {
+    if (hasSymbol && state != GemState::Empty) {
+        sf::Vector2f pos = shape.getPosition();
+        symbolShape.setPosition(pos.x, pos.y);
+        window.draw(symbolShape);
+    }
+}
+
 void Gem::setPosition(float x, float y) {
     shape.setPosition(x, y);
     targetPos = sf::Vector2f(x, y);
@@ -32,7 +52,6 @@ void Gem::setPosition(float x, float y) {
 void Gem::draw(sf::RenderWindow& window) {
     if (state == GemState::Empty) return;
 
-    // Применяем масштаб и прозрачность
     shape.setScale(currentScale, currentScale);
     sf::Color fillColor = shape.getFillColor();
     fillColor.a = static_cast<sf::Uint8>(currentAlpha);
@@ -43,8 +62,8 @@ void Gem::draw(sf::RenderWindow& window) {
     shape.setOutlineColor(outlineColor);
 
     window.draw(shape);
+    drawSymbol(window);
 
-    // Восстанавливаем цвет для следующего кадра
     fillColor.a = 255;
     shape.setFillColor(fillColor);
     outlineColor.a = 255;
@@ -133,4 +152,71 @@ float Gem::getAlpha() const {
 
 bool Gem::isEmpty() const {
     return state == GemState::Empty;
+}
+
+// StandardGem
+StandardGem::StandardGem(GemColor color, int row, int col, float size)
+    : Gem(color, row, col, size) {
+}
+
+// RecolorGem
+RecolorGem::RecolorGem(GemColor color, int row, int col, float size)
+    : Gem(color, row, col, size), specialActive(true) {
+    shape.setOutlineColor(sf::Color(255, 215, 0));
+    shape.setOutlineThickness(3);
+    initSymbol(sf::Color::White);
+}
+
+void RecolorGem::activateEffect(GameBoard& board) {
+    if (specialActive) {
+        board.recolorRandomGems(row, col, color, 3);
+        specialActive = false;
+    }
+}
+
+void RecolorGem::deactivateSpecial() {
+    specialActive = false;
+    shape.setOutlineColor(sf::Color::White);
+    shape.setOutlineThickness(2);
+    hasSymbol = false;
+}
+
+// BombGem
+BombGem::BombGem(GemColor color, int row, int col, float size)
+    : Gem(color, row, col, size), specialActive(true) {
+    shape.setOutlineColor(sf::Color(255, 50, 50));
+    shape.setOutlineThickness(3);
+    initSymbol(sf::Color(255, 200, 0));
+}
+
+void BombGem::activateEffect(GameBoard& board) {
+    if (specialActive) {
+        board.destroyGemsInRadius(row, col, 2);
+        specialActive = false;
+    }
+}
+
+void BombGem::deactivateSpecial() {
+    specialActive = false;
+    shape.setOutlineColor(sf::Color::White);
+    shape.setOutlineThickness(2);
+    hasSymbol = false;
+}
+
+// GemFactory
+std::unique_ptr<Gem> GemFactory::createRandomGem(int row, int col, float size) {
+    int colorIndex = std::rand() % static_cast<int>(GemColor::Count);
+    GemColor color = static_cast<GemColor>(colorIndex);
+    return std::make_unique<StandardGem>(color, row, col, size);
+}
+
+std::unique_ptr<Gem> GemFactory::createSpecialGem(GemType type, GemColor color, int row, int col, float size) {
+    switch (type) {
+    case GemType::Recolor:
+        return std::make_unique<RecolorGem>(color, row, col, size);
+    case GemType::Bomb:
+        return std::make_unique<BombGem>(color, row, col, size);
+    default:
+        return std::make_unique<StandardGem>(color, row, col, size);
+    }
 }

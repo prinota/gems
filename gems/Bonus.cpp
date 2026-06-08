@@ -1,12 +1,13 @@
 #include "Bonus.hpp"
 #include <cmath>
+#include <algorithm>
 
 Bonus::Bonus(BonusType type, int sourceRow, int sourceCol, int targetRow, int targetCol,
     GemColor sourceColor, float gemSize)
     : type(type), sourceRow(sourceRow), sourceCol(sourceCol),
     targetRow(targetRow), targetCol(targetCol), sourceColor(sourceColor),
-    speed(400.0f), size(gemSize * 0.7f), landed(false), effectApplied(false),
-    timer(0.0f), alpha(255.0f) {
+    speed(400.0f), size(gemSize * 0.7f), landed(false), readyToApply(false),
+    effectApplied(false), timer(0.0f), alpha(255.0f) {
 
     x = sourceCol * gemSize + gemSize / 2;
     y = sourceRow * gemSize + gemSize / 2;
@@ -34,7 +35,6 @@ void Bonus::update(float dt) {
     timer += dt;
 
     if (!landed) {
-        // Летим к цели
         float dx = targetX - x;
         float dy = targetY - y;
         float distance = std::sqrt(dx * dx + dy * dy);
@@ -43,6 +43,7 @@ void Bonus::update(float dt) {
             x = targetX;
             y = targetY;
             landed = true;
+            timer = 0.0f; //Сбрасываем таймер для фазы мигания
         }
         else {
             x += (dx / distance) * speed * dt;
@@ -51,8 +52,7 @@ void Bonus::update(float dt) {
 
         shape.setPosition(x, y);
     }
-    else if (!effectApplied) {
-        // Мигаем на месте 0.5 секунды
+    else if (!readyToApply) {
         float blink = std::abs(std::sin(timer * 20.0f));
         alpha = 128.0f + 127.0f * blink;
 
@@ -60,27 +60,41 @@ void Bonus::update(float dt) {
         fillColor.a = static_cast<sf::Uint8>(alpha);
         shape.setFillColor(fillColor);
 
-        // Автоматически применяем эффект через 0.5 секунды
-        if (timer > 0.5f) {
-            effectApplied = true;
+        if (timer >= 0.5f) {
+            onLanded(); 
         }
     }
 }
 
-void Bonus::draw(sf::RenderWindow& window) {
+void Bonus::draw(sf::RenderWindow& window) const {
     if (isFinished()) return;
     window.draw(shape);
 }
 
-bool Bonus::isFinished() const {
-    return effectApplied && timer > 0.6f;
+RecolorBonus::RecolorBonus(int sourceRow, int sourceCol, int targetRow, int targetCol,
+    GemColor sourceColor, float gemSize)
+    : Bonus(BonusType::Recolor, sourceRow, sourceCol, targetRow, targetCol, sourceColor, gemSize) {
 }
 
-bool Bonus::isReadyToApply() const {
-    return effectApplied && !isFinished();
+void RecolorBonus::applyEffect(std::vector<std::vector<std::unique_ptr<Gem>>>& gems,
+    int rows, int cols) {
+    if (targetRow >= 0 && targetRow < rows && targetCol >= 0 && targetCol < cols) {
+        if (gems[targetRow][targetCol] && !gems[targetRow][targetCol]->isEmpty()) {
+            gems[targetRow][targetCol]->setColor(sourceColor);
+        }
+    }
 }
 
-int Bonus::getTargetRow() const { return targetRow; }
-int Bonus::getTargetCol() const { return targetCol; }
-BonusType Bonus::getType() const { return type; }
-GemColor Bonus::getSourceColor() const { return sourceColor; }
+BombBonus::BombBonus(int sourceRow, int sourceCol, int targetRow, int targetCol,
+    GemColor sourceColor, float gemSize)
+    : Bonus(BonusType::Bomb, sourceRow, sourceCol, targetRow, targetCol, sourceColor, gemSize) {
+}
+
+void BombBonus::applyEffect(std::vector<std::vector<std::unique_ptr<Gem>>>& gems,
+    int rows, int cols) {
+    if (targetRow >= 0 && targetRow < rows && targetCol >= 0 && targetCol < cols) {
+        if (gems[targetRow][targetCol] && !gems[targetRow][targetCol]->isEmpty()) {
+            gems[targetRow][targetCol]->setState(GemState::Empty);
+        }
+    }
+}

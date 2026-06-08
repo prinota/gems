@@ -1,0 +1,31 @@
+# Папки с зависимостями
+packages/
+packages/*
+**/packages/
+*.config
+
+# Файлы Visual Studio
+.vs/
+*.sdf
+*.suo
+*.user
+*.opendb
+*.db
+*.VC.db
+
+# Папки сборки
+Debug/
+Release/
+x64/
+x86/
+bin/
+obj/
+
+# Исполняемые файлы
+*.exe
+*.dll
+*.pdb
+*.ilk
+*.lib
+*.exp
+

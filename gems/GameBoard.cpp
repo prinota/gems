@@ -1,10 +1,14 @@
 #include "GameBoard.hpp"
 #include <algorithm>
-#include <set>
+#include <cstdlib>
+#include <ctime>
 
 GameBoard::GameBoard(int rows, int cols, float gemSize)
     : rows(rows), cols(cols), gemSize(gemSize), selectedGem(nullptr),
+    lastSwappedGem1(nullptr), lastSwappedGem2(nullptr),
     currentState(BoardState::WaitingForInput), stateTimer(0.0f) {
+
+    std::srand(static_cast<unsigned>(std::time(nullptr)));
 
     float boardWidth = cols * gemSize;
     float boardHeight = rows * gemSize;
@@ -14,10 +18,15 @@ GameBoard::GameBoard(int rows, int cols, float gemSize)
     background.setOutlineThickness(2);
     background.setOutlineColor(sf::Color(100, 100, 100));
 
-    std::random_device rd;
-    rng.seed(rd());
-
     initializeBoard();
+}
+
+int GameBoard::getRandomInt(int min, int max) const {
+    return min + (std::rand() % (max - min + 1));
+}
+
+float GameBoard::getRandomFloat() const {
+    return static_cast<float>(std::rand()) / RAND_MAX;
 }
 
 void GameBoard::initializeBoard() {
@@ -25,15 +34,13 @@ void GameBoard::initializeBoard() {
     for (int row = 0; row < rows; ++row) {
         gems[row].resize(cols);
         for (int col = 0; col < cols; ++col) {
-            auto color = getRandomColor();
-            auto gem = std::make_unique<Gem>(color, row, col, gemSize);
+            auto gem = GemFactory::createRandomGem(row, col, gemSize);
             sf::Vector2f pos = getGemPosition(row, col);
             gem->setPosition(pos.x, pos.y);
             gems[row][col] = std::move(gem);
         }
     }
 
-    // Remove initial matches
     while (true) {
         auto matched = findMatches();
         bool hasMatches = false;
@@ -41,7 +48,10 @@ void GameBoard::initializeBoard() {
             for (int col = 0; col < cols; ++col) {
                 if (matched[row][col]) {
                     hasMatches = true;
-                    gems[row][col]->setColor(getRandomColor());
+                    auto newGem = GemFactory::createRandomGem(row, col, gemSize);
+                    sf::Vector2f pos = getGemPosition(row, col);
+                    newGem->setPosition(pos.x, pos.y);
+                    gems[row][col] = std::move(newGem);
                 }
             }
         }
@@ -55,11 +65,6 @@ sf::Vector2f GameBoard::getGemPosition(int row, int col) const {
     return sf::Vector2f(x, y);
 }
 
-GemColor GameBoard::getRandomColor() {
-    std::uniform_int_distribution<int> dist(0, static_cast<int>(GemColor::Count) - 1);
-    return static_cast<GemColor>(dist(rng));
-}
-
 void GameBoard::draw(sf::RenderWindow& window) {
     window.draw(background);
 
@@ -67,11 +72,6 @@ void GameBoard::draw(sf::RenderWindow& window) {
         for (const auto& gem : row) {
             gem->draw(window);
         }
-    }
-
-    // Бонусы рисуем поверх гемов
-    for (const auto& bonus : activeBonuses) {
-        bonus->draw(window);
     }
 }
 
@@ -90,6 +90,9 @@ bool GameBoard::handleClick(sf::Vector2f mousePos) {
                     selectedGem = nullptr;
                 }
                 else if (areAdjacent(*selectedGem, *gem)) {
+                    lastSwappedGem1 = selectedGem;
+                    lastSwappedGem2 = gem.get();
+
                     selectedGem->setSelected(false);
                     swapGems(*selectedGem, *gem);
                     selectedGem = nullptr;
@@ -136,62 +139,52 @@ void GameBoard::swapGems(Gem& gem1, Gem& gem2) {
 void GameBoard::update(float dt) {
     stateTimer += dt;
 
-    // Обновляем активные бонусы
-    for (auto& bonus : activeBonuses) {
-        bonus->update(dt);
-    }
-
-    // Удаляем завершённые бонусы
-    activeBonuses.erase(
-        std::remove_if(activeBonuses.begin(), activeBonuses.end(),
-            [](const std::unique_ptr<Bonus>& b) { return b->isFinished(); }),
-        activeBonuses.end()
-    );
-
     switch (currentState) {
     case BoardState::AnimatingSwap:
         processFalling(dt);
         if (!isAnimating()) {
             if (findAndMarkMatches()) {
+                lastSwappedGem1 = nullptr;
+                lastSwappedGem2 = nullptr;
                 currentState = BoardState::CheckingMatches;
                 stateTimer = 0.0f;
             }
             else {
-                currentState = BoardState::WaitingForInput;
+                // Обратный свап
+                if (lastSwappedGem1 && lastSwappedGem2) {
+                    swapGems(*lastSwappedGem1, *lastSwappedGem2);
+                    lastSwappedGem1 = nullptr;
+                    lastSwappedGem2 = nullptr;
+                    currentState = BoardState::RevertingSwap;
+                }
+                else {
+                    currentState = BoardState::WaitingForInput;
+                }
             }
+        }
+        break;
+
+    case BoardState::RevertingSwap:
+        processFalling(dt);
+        if (!isAnimating()) {
+            currentState = BoardState::WaitingForInput;
         }
         break;
 
     case BoardState::CheckingMatches:
         if (stateTimer >= 0.3f) {
-            spawnBonuses();
-            removeMatchedGems();
-            currentState = BoardState::ProcessingBonuses;
+            convertToSpecialGems();
+            moveBonusesToTargets();
+            currentState = BoardState::MovingBonuses;
             stateTimer = 0.0f;
         }
         break;
 
-    case BoardState::ProcessingBonuses:
-        // Ждём пока все бонусы будут готовы
-        if (!activeBonuses.empty()) {
-            bool allReady = true;
-            for (const auto& bonus : activeBonuses) {
-                if (!bonus->isReadyToApply()) {
-                    allReady = false;
-                    break;
-                }
-            }
-
-            if (allReady) {
-                applyBonusEffects();
-                activeBonuses.clear();
-                applyGravity();
-                currentState = BoardState::FallingGems;
-                stateTimer = 0.0f;
-            }
-        }
-        else {
-            // Если бонусов нет, сразу падаем
+    case BoardState::MovingBonuses:
+        processFalling(dt);
+        if (!isAnimating()) {
+            activateSpecialGems();
+            removeMatchedGems();
             applyGravity();
             currentState = BoardState::FallingGems;
             stateTimer = 0.0f;
@@ -236,154 +229,52 @@ bool GameBoard::isAnimating() const {
     return false;
 }
 
-// Вспомогательные функции для бонусов
-bool GameBoard::isInRadius(int row1, int col1, int row2, int col2, int radius) const {
-    int rowDiff = std::abs(row1 - row2);
-    int colDiff = std::abs(col1 - col2);
-    return rowDiff <= radius && colDiff <= radius;
-}
-
-std::vector<std::pair<int, int>> GameBoard::getNonAdjacentInRadius(int centerRow, int centerCol, int radius, int count) {
-    std::vector<std::pair<int, int>> candidates;
-
-    // Собираем все позиции в радиусе
-    for (int r = centerRow - radius; r <= centerRow + radius; ++r) {
-        for (int c = centerCol - radius; c <= centerCol + radius; ++c) {
-            if (r >= 0 && r < rows && c >= 0 && c < cols) {
-                // Проверяем, что это не центр и не сосед
-                if (!(std::abs(r - centerRow) <= 1 && std::abs(c - centerCol) <= 1)) {
-                    candidates.push_back({ r, c });
-                }
-            }
-        }
-    }
-
-    // Перемешиваем и выбираем нужное количество
-    std::shuffle(candidates.begin(), candidates.end(), rng);
-
-    std::vector<std::pair<int, int>> result;
-    for (int i = 0; i < std::min(count, static_cast<int>(candidates.size())); ++i) {
-        result.push_back(candidates[i]);
-    }
-
-    return result;
-}
-
-std::vector<std::pair<int, int>> GameBoard::getRandomPositions(int count, std::pair<int, int> exclude) {
-    std::vector<std::pair<int, int>> positions;
-    for (int r = 0; r < rows; ++r) {
-        for (int c = 0; c < cols; ++c) {
-            if (exclude.first != r || exclude.second != c) {
-                positions.push_back({ r, c });
-            }
-        }
-    }
-
-    std::shuffle(positions.begin(), positions.end(), rng);
-
-    std::vector<std::pair<int, int>> result;
-    for (int i = 0; i < std::min(count, static_cast<int>(positions.size())); ++i) {
-        result.push_back(positions[i]);
-    }
-
-    return result;
-}
-
-void GameBoard::spawnBonuses() {
-    std::uniform_real_distribution<float> chanceDist(0.0f, 1.0f);
-    std::uniform_int_distribution<int> typeDist(0, 1);
+std::vector<std::vector<bool>> GameBoard::findMatches() {
+    std::vector<std::vector<bool>> matched(rows, std::vector<bool>(cols, false));
+    std::vector<std::vector<bool>> visited(rows, std::vector<bool>(cols, false));
 
     for (int row = 0; row < rows; ++row) {
         for (int col = 0; col < cols; ++col) {
-            if (gems[row][col]->getState() == GemState::Matched) {
-                // 40% шанс на создание бонуса
-                if (chanceDist(rng) < 0.4f) {
-                    BonusType type = (typeDist(rng) == 0) ? BonusType::Recolor : BonusType::Bomb;
+            if (!gems[row][col]->isEmpty() && !visited[row][col]) {
+                GemColor targetColor = gems[row][col]->getColor();
+                std::vector<std::pair<int, int>> component;
+                std::vector<std::pair<int, int>> queue;
 
-                    // Выбираем цель в радиусе 3
-                    std::vector<std::pair<int, int>> targets;
-                    for (int r = row - 3; r <= row + 3; ++r) {
-                        for (int c = col - 3; c <= col + 3; ++c) {
-                            if (r >= 0 && r < rows && c >= 0 && c < cols) {
-                                targets.push_back({ r, c });
-                            }
+                queue.push_back(std::make_pair(row, col));
+                visited[row][col] = true;
+
+                while (!queue.empty()) {
+                    std::pair<int, int> current = queue.back();
+                    queue.pop_back();
+                    int r = current.first;
+                    int c = current.second;
+                    component.push_back(std::make_pair(r, c));
+
+                    const int dr[] = { -1, 1, 0, 0 };
+                    const int dc[] = { 0, 0, -1, 1 };
+
+                    for (int i = 0; i < 4; ++i) {
+                        int nr = r + dr[i];
+                        int nc = c + dc[i];
+
+                        if (nr >= 0 && nr < rows && nc >= 0 && nc < cols &&
+                            !visited[nr][nc] && !gems[nr][nc]->isEmpty() &&
+                            gems[nr][nc]->getColor() == targetColor) {
+                            visited[nr][nc] = true;
+                            queue.push_back(std::make_pair(nr, nc));
                         }
                     }
+                }
 
-                    if (!targets.empty()) {
-                        std::uniform_int_distribution<int> targetDist(0, targets.size() - 1);
-                        auto target = targets[targetDist(rng)];
-
-                        auto bonus = std::make_unique<Bonus>(
-                            type, row, col, target.first, target.second,
-                            gems[row][col]->getColor(), gemSize
-                        );
-                        activeBonuses.push_back(std::move(bonus));
+                if (component.size() >= 3) {
+                    for (size_t i = 0; i < component.size(); ++i) {
+                        matched[component[i].first][component[i].second] = true;
                     }
                 }
             }
         }
     }
-}
 
-void GameBoard::applyBonusEffects() {
-    for (const auto& bonus : activeBonuses) {
-        if (!bonus->isReadyToApply()) continue;  
-
-        int targetRow = bonus->getTargetRow();
-        int targetCol = bonus->getTargetCol();
-
-        // Проверяем, что цель в пределах поля
-        if (targetRow < 0 || targetRow >= rows || targetCol < 0 || targetCol >= cols) {
-            continue;
-        }
-
-        if (bonus->getType() == BonusType::Recolor) {
-            applyRecolorBonus(targetRow, targetCol, bonus->getSourceColor());
-        }
-        else {
-            applyBombBonus(targetRow, targetCol);
-        }
-    }
-}
-
-void GameBoard::applyRecolorBonus(int targetRow, int targetCol, GemColor sourceColor) {
-    // Перекрашиваем целевой квадрат
-    if (!gems[targetRow][targetCol]->isEmpty()) {
-        gems[targetRow][targetCol]->setColor(sourceColor);
-    }
-
-    // Выбираем 2 несоседа в радиусе 3 и перекрашиваем их
-    auto nonAdjacent = getNonAdjacentInRadius(targetRow, targetCol, 3, 2);
-
-    for (const auto& pos : nonAdjacent) {
-        if (!gems[pos.first][pos.second]->isEmpty()) {
-            gems[pos.first][pos.second]->setColor(sourceColor);
-        }
-    }
-}
-
-void GameBoard::applyBombBonus(int targetRow, int targetCol) {
-    // Уничтожаем целевой квадрат
-    if (!gems[targetRow][targetCol]->isEmpty()) {
-        gems[targetRow][targetCol]->setState(GemState::Empty);
-    }
-
-    // Выбираем 4 случайных квадрата (плюс целевой = 5)
-    auto randomPositions = getRandomPositions(4, { targetRow, targetCol });
-
-    for (const auto& pos : randomPositions) {
-        if (!gems[pos.first][pos.second]->isEmpty()) {
-            gems[pos.first][pos.second]->setState(GemState::Empty);
-        }
-    }
-}
-
-// Остальные методы остаются без изменений
-std::vector<std::vector<bool>> GameBoard::findMatches() {
-    std::vector<std::vector<bool>> matched(rows, std::vector<bool>(cols, false));
-    checkHorizontalMatches(matched);
-    checkVerticalMatches(matched);
     return matched;
 }
 
@@ -401,6 +292,96 @@ bool GameBoard::findAndMarkMatches() {
     }
 
     return hasMatches;
+}
+
+void GameBoard::convertToSpecialGems() {
+    for (int row = 0; row < rows; ++row) {
+        for (int col = 0; col < cols; ++col) {
+            if (gems[row][col]->getState() == GemState::Matched &&
+                !gems[row][col]->isSpecial()) {
+
+                if (getRandomFloat() < 0.15f) {
+                    GemType type = (getRandomInt(0, 1) == 0) ? GemType::Recolor : GemType::Bomb;
+                    GemColor color = gems[row][col]->getColor();
+
+                    auto specialGem = GemFactory::createSpecialGem(type, color, row, col, gemSize);
+                    sf::Vector2f pos = getGemPosition(row, col);
+                    specialGem->setPosition(pos.x, pos.y);
+                    specialGem->setState(GemState::Matched);
+
+                    gems[row][col] = std::move(specialGem);
+                }
+            }
+        }
+    }
+}
+
+std::pair<int, int> GameBoard::getRandomTarget(int sourceRow, int sourceCol, int radius) const {
+    std::vector<std::pair<int, int>> targets;
+
+    for (int r = sourceRow - radius; r <= sourceRow + radius; ++r) {
+        for (int c = sourceCol - radius; c <= sourceCol + radius; ++c) {
+            if (r >= 0 && r < rows && c >= 0 && c < cols) {
+                if (!(r == sourceRow && c == sourceCol)) {
+                    if (!gems[r][c]->isEmpty() && !gems[r][c]->isSpecial()) {
+                        targets.push_back(std::make_pair(r, c));
+                    }
+                }
+            }
+        }
+    }
+
+    if (targets.empty()) {
+        return std::make_pair(sourceRow, sourceCol);
+    }
+
+    int index = getRandomInt(0, targets.size() - 1);
+    return targets[index];
+}
+
+void GameBoard::moveBonusesToTargets() {
+    for (int row = 0; row < rows; ++row) {
+        for (int col = 0; col < cols; ++col) {
+            if (gems[row][col]->getState() == GemState::Matched &&
+                gems[row][col]->isSpecial()) {
+
+                std::pair<int, int> target = getRandomTarget(row, col, 3);
+                int targetRow = target.first;
+                int targetCol = target.second;
+
+                if (targetRow != row || targetCol != col) {
+                    auto specialGem = std::move(gems[row][col]);
+
+                    gems[row][col] = std::move(gems[targetRow][targetCol]);
+                    gems[row][col]->setRow(row);
+                    gems[row][col]->setCol(col);
+                    gems[row][col]->setState(GemState::Matched);
+
+                    specialGem->setRow(targetRow);
+                    specialGem->setCol(targetCol);
+                    specialGem->setState(GemState::BonusMoving);
+
+                    sf::Vector2f targetPos = getGemPosition(targetRow, targetCol);
+                    specialGem->setTargetPosition(targetPos.x, targetPos.y);
+
+                    gems[targetRow][targetCol] = std::move(specialGem);
+                }
+            }
+        }
+    }
+}
+
+void GameBoard::activateSpecialGems() {
+    for (int row = 0; row < rows; ++row) {
+        for (int col = 0; col < cols; ++col) {
+            if (gems[row][col]->isSpecial() &&
+                (gems[row][col]->getState() == GemState::Matched ||
+                    gems[row][col]->getState() == GemState::BonusMoving)) {
+                gems[row][col]->activateEffect(*this);
+                gems[row][col]->setState(GemState::Empty);
+            }
+        }
+    }
 }
 
 void GameBoard::removeMatchedGems() {
@@ -447,7 +428,7 @@ void GameBoard::spawnNewGems() {
             if (gems[row][col]->isEmpty()) {
                 emptyCount++;
 
-                auto newGem = std::make_unique<Gem>(getRandomColor(), row, col, gemSize);
+                auto newGem = GemFactory::createRandomGem(row, col, gemSize);
                 float startY = -gemSize * (emptyCount);
                 sf::Vector2f target = getGemPosition(row, col);
 
@@ -472,57 +453,50 @@ void GameBoard::processFalling(float dt) {
     }
 }
 
-
-bool GameBoard::checkHorizontalMatches(std::vector<std::vector<bool>>& matched) {
-    bool found = false;
-    for (int row = 0; row < rows; ++row) {
-        for (int col = 0; col < cols - 2; ++col) {
-            if (gems[row][col]->isEmpty()) continue;
-
-            GemColor color = gems[row][col]->getColor();
-            int matchLen = 1;
-
-            while (col + matchLen < cols &&
-                !gems[row][col + matchLen]->isEmpty() &&
-                gems[row][col + matchLen]->getColor() == color) {
-                matchLen++;
-            }
-
-            if (matchLen >= 3) {
-                for (int c = col; c < col + matchLen; ++c) {
-                    matched[row][c] = true;
-                }
-                found = true;
-            }
-            col += matchLen - 1;
-        }
-    }
-    return found;
+bool GameBoard::isInRadius(int row1, int col1, int row2, int col2, int radius) const {
+    int rowDiff = std::abs(row1 - row2);
+    int colDiff = std::abs(col1 - col2);
+    return rowDiff <= radius && colDiff <= radius;
 }
 
-bool GameBoard::checkVerticalMatches(std::vector<std::vector<bool>>& matched) {
-    bool found = false;
-    for (int col = 0; col < cols; ++col) {
-        for (int row = 0; row < rows - 2; ++row) {
-            if (gems[row][col]->isEmpty()) continue;
+void GameBoard::recolorRandomGems(int centerRow, int centerCol, GemColor color, int count) {
+    std::vector<std::pair<int, int>> candidates;
 
-            GemColor color = gems[row][col]->getColor();
-            int matchLen = 1;
-
-            while (row + matchLen < rows &&
-                !gems[row + matchLen][col]->isEmpty() &&
-                gems[row + matchLen][col]->getColor() == color) {
-                matchLen++;
-            }
-
-            if (matchLen >= 3) {
-                for (int r = row; r < row + matchLen; ++r) {
-                    matched[r][col] = true;
+    for (int r = centerRow - 3; r <= centerRow + 3; ++r) {
+        for (int c = centerCol - 3; c <= centerCol + 3; ++c) {
+            if (r >= 0 && r < rows && c >= 0 && c < cols) {
+                if (!(std::abs(r - centerRow) <= 1 && std::abs(c - centerCol) <= 1)) {
+                    if (!gems[r][c]->isEmpty()) {
+                        candidates.push_back(std::make_pair(r, c));
+                    }
                 }
-                found = true;
             }
-            row += matchLen - 1;
         }
     }
-    return found;
+
+    for (size_t i = candidates.size() - 1; i > 0; --i) {
+        size_t j = getRandomInt(0, i);
+        std::swap(candidates[i], candidates[j]);
+    }
+
+    int applied = 0;
+    for (size_t i = 0; i < candidates.size(); ++i) {
+        if (applied >= count) break;
+        gems[candidates[i].first][candidates[i].second]->setColor(color);
+        applied++;
+    }
+}
+
+void GameBoard::destroyGemsInRadius(int centerRow, int centerCol, int radius) {
+    for (int r = centerRow - radius; r <= centerRow + radius; ++r) {
+        for (int c = centerCol - radius; c <= centerCol + radius; ++c) {
+            if (r >= 0 && r < rows && c >= 0 && c < cols) {
+                if (isInRadius(centerRow, centerCol, r, c, radius)) {
+                    if (!gems[r][c]->isEmpty()) {
+                        gems[r][c]->setState(GemState::Empty);
+                    }
+                }
+            }
+        }
+    }
 }

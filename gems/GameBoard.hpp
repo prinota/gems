@@ -1,6 +1,5 @@
 #pragma once
 #include "Gem.hpp"
-#include "Bonus.hpp"
 #include <vector>
 #include <memory>
 
@@ -13,20 +12,25 @@ public:
     void update(float dt);
     bool isAnimating() const;
 
+    void recolorRandomGems(int centerRow, int centerCol, GemColor color, int count);
+    void destroyGemsInRadius(int centerRow, int centerCol, int radius);
+
 private:
     int rows, cols;
     float gemSize;
     std::vector<std::vector<std::unique_ptr<Gem>>> gems;
     Gem* selectedGem;
+    Gem* lastSwappedGem1;
+    Gem* lastSwappedGem2;
     sf::RectangleShape background;
-    std::vector<std::unique_ptr<Bonus>> activeBonuses;
 
     enum class BoardState {
         WaitingForInput,
         AnimatingSwap,
+        RevertingSwap,
         CheckingMatches,
+        MovingBonuses,
         RemovingMatches,
-        ProcessingBonuses,
         FallingGems,
         SpawningNewGems
     };
@@ -38,25 +42,21 @@ private:
     void swapGems(Gem& gem1, Gem& gem2);
     bool areAdjacent(const Gem& gem1, const Gem& gem2) const;
     sf::Vector2f getGemPosition(int row, int col) const;
-    GemColor getRandomColor();
 
     bool findAndMarkMatches();
+    void moveBonusesToTargets();
+    void activateSpecialGems();
+    void convertToSpecialGems();
     void removeMatchedGems();
-    void spawnBonuses();
-    void applyBonusEffects();
-    void applyRecolorBonus(int targetRow, int targetCol, GemColor sourceColor);
-    void applyBombBonus(int targetRow, int targetCol);
     void applyGravity();
     void spawnNewGems();
     void processFalling(float dt);
 
-    bool isInRadius(int row1, int col1, int row2, int col2, int radius) const;
-    std::vector<std::pair<int, int>> getNonAdjacentInRadius(int centerRow, int centerCol, int radius, int count);
-    std::vector<std::pair<int, int>> getRandomPositions(int count, std::pair<int, int> exclude = { -1, -1 });
-
     std::vector<std::vector<bool>> findMatches();
-    bool checkHorizontalMatches(std::vector<std::vector<bool>>& matched);
-    bool checkVerticalMatches(std::vector<std::vector<bool>>& matched);
 
-    std::mt19937 rng;
+    bool isInRadius(int row1, int col1, int row2, int col2, int radius) const;
+    std::pair<int, int> getRandomTarget(int sourceRow, int sourceCol, int radius) const;
+
+    int getRandomInt(int min, int max) const;
+    float getRandomFloat() const;
 };
