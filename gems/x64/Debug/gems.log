@@ -1,7 +1,19 @@
-﻿  GameBoard.cpp
-C:\Users\admin\source\repos\gems\gems\GameBoard.cpp(314,89): warning C4267: аргумент: преобразование из "size_t" в "_Ty"; возможна потеря данных
-C:\Users\admin\source\repos\gems\gems\GameBoard.cpp(314,89): warning C4267:         with
-C:\Users\admin\source\repos\gems\gems\GameBoard.cpp(314,89): warning C4267:         [
-C:\Users\admin\source\repos\gems\gems\GameBoard.cpp(314,89): warning C4267:             _Ty=int
-C:\Users\admin\source\repos\gems\gems\GameBoard.cpp(314,89): warning C4267:         ]
+﻿  Bonus.cpp
+  Game.cpp
+C:\Users\admin\source\repos\gems\gems\Game.cpp(37,77): warning C4244: аргумент: преобразование "int" в "T", возможна потеря данных
+C:\Users\admin\source\repos\gems\gems\Game.cpp(37,77): warning C4244:         with
+C:\Users\admin\source\repos\gems\gems\Game.cpp(37,77): warning C4244:         [
+C:\Users\admin\source\repos\gems\gems\Game.cpp(37,77): warning C4244:             T=float
+C:\Users\admin\source\repos\gems\gems\Game.cpp(37,77): warning C4244:         ]
+C:\Users\admin\source\repos\gems\gems\Game.cpp(37,56): warning C4244: аргумент: преобразование "int" в "T", возможна потеря данных
+C:\Users\admin\source\repos\gems\gems\Game.cpp(37,56): warning C4244:         with
+C:\Users\admin\source\repos\gems\gems\Game.cpp(37,56): warning C4244:         [
+C:\Users\admin\source\repos\gems\gems\Game.cpp(37,56): warning C4244:             T=float
+C:\Users\admin\source\repos\gems\gems\Game.cpp(37,56): warning C4244:         ]
+  GameBoard.cpp
+C:\Users\admin\source\repos\gems\gems\GameBoard.cpp(364,48): warning C4267: аргумент: преобразование из "size_t" в "int"; возможна потеря данных
+C:\Users\admin\source\repos\gems\gems\GameBoard.cpp(504,36): warning C4267: аргумент: преобразование из "size_t" в "int"; возможна потеря данных
+  Gem.cpp
+  main.cpp
+  Создание кода...
   gems.vcxproj -> C:\Users\admin\source\repos\gems\x64\Debug\gems.exe

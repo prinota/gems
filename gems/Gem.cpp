@@ -36,7 +36,7 @@ void Gem::initSymbol(const sf::Color& symbolColor) {
     symbolShape.setOutlineThickness(1);
 }
 
-void Gem::drawSymbol(sf::RenderWindow& window) const {
+void Gem::drawSymbol(sf::RenderWindow& window) {
     if (hasSymbol && state != GemState::Empty) {
         sf::Vector2f pos = shape.getPosition();
         symbolShape.setPosition(pos.x, pos.y);
@@ -154,12 +154,7 @@ bool Gem::isEmpty() const {
     return state == GemState::Empty;
 }
 
-// StandardGem
-StandardGem::StandardGem(GemColor color, int row, int col, float size)
-    : Gem(color, row, col, size) {
-}
 
-// RecolorGem
 RecolorGem::RecolorGem(GemColor color, int row, int col, float size)
     : Gem(color, row, col, size), specialActive(true) {
     shape.setOutlineColor(sf::Color(255, 215, 0));
@@ -181,7 +176,6 @@ void RecolorGem::deactivateSpecial() {
     hasSymbol = false;
 }
 
-// BombGem
 BombGem::BombGem(GemColor color, int row, int col, float size)
     : Gem(color, row, col, size), specialActive(true) {
     shape.setOutlineColor(sf::Color(255, 50, 50));
@@ -203,11 +197,11 @@ void BombGem::deactivateSpecial() {
     hasSymbol = false;
 }
 
-// GemFactory
+
 std::unique_ptr<Gem> GemFactory::createRandomGem(int row, int col, float size) {
     int colorIndex = std::rand() % static_cast<int>(GemColor::Count);
     GemColor color = static_cast<GemColor>(colorIndex);
-    return std::make_unique<StandardGem>(color, row, col, size);
+    return std::make_unique<Gem>(color, row, col, size);
 }
 
 std::unique_ptr<Gem> GemFactory::createSpecialGem(GemType type, GemColor color, int row, int col, float size) {
@@ -217,6 +211,6 @@ std::unique_ptr<Gem> GemFactory::createSpecialGem(GemType type, GemColor color, 
     case GemType::Bomb:
         return std::make_unique<BombGem>(color, row, col, size);
     default:
-        return std::make_unique<StandardGem>(color, row, col, size);
+        return std::make_unique<Gem>(color, row, col, size);
     }
 }

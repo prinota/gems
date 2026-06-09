@@ -4,8 +4,7 @@
 #include <ctime>
 
 GameBoard::GameBoard(int rows, int cols, float gemSize)
-    : rows(rows), cols(cols), gemSize(gemSize), selectedGem(nullptr),
-    lastSwappedGem1(nullptr), lastSwappedGem2(nullptr),
+    : rows(rows), cols(cols), gemSize(gemSize),
     currentState(BoardState::WaitingForInput), stateTimer(0.0f) {
 
     std::srand(static_cast<unsigned>(std::time(nullptr)));
@@ -19,6 +18,34 @@ GameBoard::GameBoard(int rows, int cols, float gemSize)
     background.setOutlineColor(sf::Color(100, 100, 100));
 
     initializeBoard();
+}
+
+// Вспомогательные методы
+Gem* GameBoard::getGem(int row, int col) {
+    if (!isValidCell(row, col)) return nullptr;
+    return gems[row][col].get();
+}
+
+bool GameBoard::hasSelection() const {
+    return selectedRow != -1 && selectedCol != -1;
+}
+
+void GameBoard::clearSelection() {
+    if (hasSelection()) {
+        gems[selectedRow][selectedCol]->setSelected(false);
+    }
+    selectedRow = -1;
+    selectedCol = -1;
+}
+
+bool GameBoard::isValidCell(int row, int col) const {
+    return row >= 0 && row < rows && col >= 0 && col < cols;
+}
+
+bool GameBoard::areAdjacent(int row1, int col1, int row2, int col2) const {
+    int rowDiff = std::abs(row1 - row2);
+    int colDiff = std::abs(col1 - col2);
+    return (rowDiff + colDiff) == 1;
 }
 
 int GameBoard::getRandomInt(int min, int max) const {
@@ -78,30 +105,35 @@ void GameBoard::draw(sf::RenderWindow& window) {
 bool GameBoard::handleClick(sf::Vector2f mousePos) {
     if (currentState != BoardState::WaitingForInput) return false;
 
-    for (auto& row : gems) {
-        for (auto& gem : row) {
-            if (gem->contains(mousePos)) {
-                if (selectedGem == nullptr) {
-                    gem->setSelected(true);
-                    selectedGem = gem.get();
+    for (int row = 0; row < rows; ++row) {
+        for (int col = 0; col < cols; ++col) {
+            if (gems[row][col]->contains(mousePos)) {
+                if (!hasSelection()) {
+                    gems[row][col]->setSelected(true);
+                    selectedRow = row;
+                    selectedCol = col;
                 }
-                else if (selectedGem == gem.get()) {
-                    gem->setSelected(false);
-                    selectedGem = nullptr;
+                else if (selectedRow == row && selectedCol == col) {
+                    //повторный клик - снять выделение
+                    gems[row][col]->setSelected(false);
+                    clearSelection();
                 }
-                else if (areAdjacent(*selectedGem, *gem)) {
-                    lastSwappedGem1 = selectedGem;
-                    lastSwappedGem2 = gem.get();
+                else if (areAdjacent(selectedRow, selectedCol, row, col)) {
+                    lastSwappedRow1 = selectedRow;
+                    lastSwappedCol1 = selectedCol;
+                    lastSwappedRow2 = row;
+                    lastSwappedCol2 = col;
 
-                    selectedGem->setSelected(false);
-                    swapGems(*selectedGem, *gem);
-                    selectedGem = nullptr;
+                    gems[selectedRow][selectedCol]->setSelected(false);
+                    swapGems(selectedRow, selectedCol, row, col);
+                    clearSelection();
                     currentState = BoardState::AnimatingSwap;
                 }
                 else {
-                    selectedGem->setSelected(false);
-                    gem->setSelected(true);
-                    selectedGem = gem.get();
+                    gems[selectedRow][selectedCol]->setSelected(false);
+                    gems[row][col]->setSelected(true);
+                    selectedRow = row;
+                    selectedCol = col;
                 }
                 return true;
             }
@@ -110,30 +142,19 @@ bool GameBoard::handleClick(sf::Vector2f mousePos) {
     return false;
 }
 
-bool GameBoard::areAdjacent(const Gem& gem1, const Gem& gem2) const {
-    int rowDiff = std::abs(gem1.getRow() - gem2.getRow());
-    int colDiff = std::abs(gem1.getCol() - gem2.getCol());
-    return (rowDiff + colDiff) == 1;
-}
+void GameBoard::swapGems(int row1, int col1, int row2, int col2) {
+    std::swap(gems[row1][col1], gems[row2][col2]);
 
-void GameBoard::swapGems(Gem& gem1, Gem& gem2) {
-    int oldRow1 = gem1.getRow();
-    int oldCol1 = gem1.getCol();
-    int oldRow2 = gem2.getRow();
-    int oldCol2 = gem2.getCol();
+    gems[row1][col1]->setRow(row1);
+    gems[row1][col1]->setCol(col1);
+    gems[row2][col2]->setRow(row2);
+    gems[row2][col2]->setCol(col2);
 
-    std::swap(gems[oldRow1][oldCol1], gems[oldRow2][oldCol2]);
+    sf::Vector2f newPos1 = getGemPosition(row1, col1);
+    sf::Vector2f newPos2 = getGemPosition(row2, col2);
 
-    gem1.setRow(oldRow2);
-    gem1.setCol(oldCol2);
-    gem2.setRow(oldRow1);
-    gem2.setCol(oldCol1);
-
-    sf::Vector2f newPos1 = getGemPosition(oldRow2, oldCol2);
-    sf::Vector2f newPos2 = getGemPosition(oldRow1, oldCol1);
-
-    gem1.setTargetPosition(newPos1.x, newPos1.y);
-    gem2.setTargetPosition(newPos2.x, newPos2.y);
+    gems[row1][col1]->setTargetPosition(newPos1.x, newPos1.y);
+    gems[row2][col2]->setTargetPosition(newPos2.x, newPos2.y);
 }
 
 void GameBoard::update(float dt) {
@@ -144,17 +165,22 @@ void GameBoard::update(float dt) {
         processFalling(dt);
         if (!isAnimating()) {
             if (findAndMarkMatches()) {
-                lastSwappedGem1 = nullptr;
-                lastSwappedGem2 = nullptr;
+                lastSwappedRow1 = -1;
+                lastSwappedCol1 = -1;
+                lastSwappedRow2 = -1;
+                lastSwappedCol2 = -1;
                 currentState = BoardState::CheckingMatches;
                 stateTimer = 0.0f;
             }
             else {
-                // Обратный свап
-                if (lastSwappedGem1 && lastSwappedGem2) {
-                    swapGems(*lastSwappedGem1, *lastSwappedGem2);
-                    lastSwappedGem1 = nullptr;
-                    lastSwappedGem2 = nullptr;
+                //обратный свап
+                if (lastSwappedRow1 != -1 && lastSwappedRow2 != -1) {
+                    swapGems(lastSwappedRow1, lastSwappedCol1,
+                        lastSwappedRow2, lastSwappedCol2);
+                    lastSwappedRow1 = -1;
+                    lastSwappedCol1 = -1;
+                    lastSwappedRow2 = -1;
+                    lastSwappedCol2 = -1;
                     currentState = BoardState::RevertingSwap;
                 }
                 else {
@@ -257,7 +283,7 @@ std::vector<std::vector<bool>> GameBoard::findMatches() {
                         int nr = r + dr[i];
                         int nc = c + dc[i];
 
-                        if (nr >= 0 && nr < rows && nc >= 0 && nc < cols &&
+                        if (isValidCell(nr, nc) &&
                             !visited[nr][nc] && !gems[nr][nc]->isEmpty() &&
                             gems[nr][nc]->getColor() == targetColor) {
                             visited[nr][nc] = true;
@@ -321,7 +347,7 @@ std::pair<int, int> GameBoard::getRandomTarget(int sourceRow, int sourceCol, int
 
     for (int r = sourceRow - radius; r <= sourceRow + radius; ++r) {
         for (int c = sourceCol - radius; c <= sourceCol + radius; ++c) {
-            if (r >= 0 && r < rows && c >= 0 && c < cols) {
+            if (isValidCell(r, c)) {
                 if (!(r == sourceRow && c == sourceCol)) {
                     if (!gems[r][c]->isEmpty() && !gems[r][c]->isSpecial()) {
                         targets.push_back(std::make_pair(r, c));
@@ -464,7 +490,7 @@ void GameBoard::recolorRandomGems(int centerRow, int centerCol, GemColor color, 
 
     for (int r = centerRow - 3; r <= centerRow + 3; ++r) {
         for (int c = centerCol - 3; c <= centerCol + 3; ++c) {
-            if (r >= 0 && r < rows && c >= 0 && c < cols) {
+            if (isValidCell(r, c)) {
                 if (!(std::abs(r - centerRow) <= 1 && std::abs(c - centerCol) <= 1)) {
                     if (!gems[r][c]->isEmpty()) {
                         candidates.push_back(std::make_pair(r, c));
@@ -490,7 +516,7 @@ void GameBoard::recolorRandomGems(int centerRow, int centerCol, GemColor color, 
 void GameBoard::destroyGemsInRadius(int centerRow, int centerCol, int radius) {
     for (int r = centerRow - radius; r <= centerRow + radius; ++r) {
         for (int c = centerCol - radius; c <= centerCol + radius; ++c) {
-            if (r >= 0 && r < rows && c >= 0 && c < cols) {
+            if (isValidCell(r, c)) {
                 if (isInRadius(centerRow, centerCol, r, c, radius)) {
                     if (!gems[r][c]->isEmpty()) {
                         gems[r][c]->setState(GemState::Empty);

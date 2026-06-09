@@ -33,7 +33,7 @@ public:
     virtual bool isSpecial() const { return false; }
     virtual void activateEffect(GameBoard& board) {}
     virtual void deactivateSpecial() {}
-    virtual GemType getType() const = 0;
+    virtual GemType getType() const { return GemType::Standard; }  
 
     void setPosition(float x, float y);
     bool contains(sf::Vector2f point) const;
@@ -75,19 +75,14 @@ protected:
     sf::Vector2f targetPos;
     sf::CircleShape shape;
 
-    mutable sf::CircleShape symbolShape;
+    sf::CircleShape symbolShape;
     bool hasSymbol;
 
     sf::Color getSFMLColor(GemColor color) const;
     void initSymbol(const sf::Color& symbolColor);
-    void drawSymbol(sf::RenderWindow& window) const;
+    void drawSymbol(sf::RenderWindow& window);
 };
 
-class StandardGem : public Gem {
-public:
-    StandardGem(GemColor color, int row, int col, float size);
-    GemType getType() const override { return GemType::Standard; }
-};
 
 class RecolorGem : public Gem {
 public:
