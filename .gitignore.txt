@@ -1,0 +1,15 @@
+# Visual Studio
+.vs/
+Debug/
+Release/
+x64/
+*.user
+*.suo
+
+# NuGet packages
+packages/
+
+# Compiled files
+*.exe
+*.obj
+*.pdb
